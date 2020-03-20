@@ -362,7 +362,7 @@ int main(int argc, char **argv)
 		}
 		*t = 0;
 		t++;
-		printf("checking %s\n", buf);
+		printf("checking %s %s\n", buf, t);
 		checkuser(buf, t);
 	}
 	fclose(fp);
