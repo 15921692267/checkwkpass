@@ -1,5 +1,5 @@
 all:
-	gcc -Wall -g -o checkwkpass checkwkpass.c -lcrypt -lssl
+	gcc -Wall -g -o checkwkpass checkwkpass.c -lcrypt -lssl -lcrypto
 
 indent: checkwkpass.c
 	indent checkwkpass.c  -nbad -bap -nbc -bbo -hnl -br -brs -c33 -cd33 -ncdb -ce -ci4 \
