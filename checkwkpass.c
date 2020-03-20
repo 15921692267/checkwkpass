@@ -9,8 +9,9 @@ email.pass.txt是邮件用户 和 加密后的密码，中间空格 或 TAB 隔�
 
 支持的加密密码格式有：
 如果密码是 {enc1}xxx，crypt('密码', 'xxx')
-如果密码是 {ecn2}xxxx，md5sum('密码')
-如果密码是 {ecn8}xxxx，把xxxx decode64转成2进制，然后直接dumphex
+如果密码是 {enc2}xxxx，md5sum('密码')
+如果密码是 {enc5}xxx，crypt('密码', 'xxx')，使用带salt MD5，非常慢
+如果密码是 {enc8}xxxx，把xxxx decode64转成2进制，然后直接dumphex
 
 为了提高速度，预先将弱密码读入，并生成md5，
 
@@ -302,6 +303,8 @@ void checkuser(char *email, char *salt)
 		return checkenc1(email, salt);
 	if (strncmp(salt, "{enc2}", 6) == 0)
 		return checkenc2(email, salt);
+	if (strncmp(salt, "{enc5}", 6) == 0)
+		return checkenc1(email, salt);
 	if (strncmp(salt, "{enc8}", 6) == 0)
 		return checkenc8(email, salt);
 	printf("unknow slat: %s\n", salt);
