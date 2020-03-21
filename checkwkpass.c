@@ -359,8 +359,14 @@ int main(int argc, char **argv)
 		if (t == NULL) {
 			t = strchr(buf, ' ');
 			if (t == NULL) {
-				printf("SKIP %s\n", buf);
-				continue;
+				if(buf[0]=='{') {
+					printf("checking %s\n", buf);
+					checkuser("nousername", buf);
+					continue;
+				} else {
+					printf("SKIP %s\n", buf);
+					continue;
+				}
 			}
 		}
 		*t = 0;
