@@ -287,10 +287,9 @@ void checkenc8(const char *email, const char *salt, char *result)
 	printf("docoded ret: %d\n", l);
 #endif
 	if (l != 20) {
-			snprintf(result, MAXLEN, "RESULTERROR");
-			return;
+		snprintf(result, MAXLEN, "RESULTERROR");
+		return;
 	}
-
 	// 对每个可能的密码，尝试
 	for (s = all_pass; s != NULL; s = s->hh.next) {
 		MD5_Init(&ctx);
@@ -304,7 +303,6 @@ void checkenc8(const char *email, const char *salt, char *result)
 	}
 	snprintf(result, MAXLEN, "RESULT");
 }
-
 
 void checkuser(char *email, char *salt, char *result)
 {
@@ -347,7 +345,6 @@ void load_wk_pass(char *wk_pass)
 #endif
 }
 
-
 char wk_pass_filename[MAXLEN];
 char pass_filename[MAXLEN];
 
@@ -360,24 +357,24 @@ void do_job()
 	printf("I am slave %d, do the job\n", my_rank);
 #endif
 	load_wk_pass(wk_pass_filename);
-	MPI_Barrier(MPI_COMM_WORLD);	
-	strcpy(buf, "READY"); // 告诉主进程READY，要求分配任务
-	MPI_Send(buf, strlen(buf) + 1, MPI_CHAR, 0, 99, MPI_COMM_WORLD); 
-	while(1) {
+	MPI_Barrier(MPI_COMM_WORLD);
+	strcpy(buf, "READY");	// 告诉主进程READY，要求分配任务
+	MPI_Send(buf, strlen(buf) + 1, MPI_CHAR, 0, 99, MPI_COMM_WORLD);
+	while (1) {
 		MPI_Recv(buf, MAXLEN, MPI_CHAR, 0, 99, MPI_COMM_WORLD, &status);
 #ifdef DEBUG
 		printf("rank %d get %s\n", my_rank, buf);
 #endif
-		if(memcmp(buf, "TASK", 4) == 0) {
-			char *t = strchr(buf+4, '\t');
-			if(t) {
+		if (memcmp(buf, "TASK", 4) == 0) {
+			char *t = strchr(buf + 4, '\t');
+			if (t) {
 				*t = 0;
 				t++;
 				checkuser(buf + 4, t, result);
 #ifdef DEBUG
 				printf("rank %d result: %s\n", my_rank, result);
 #endif
-				 MPI_Send(result, strlen(result) + 1, MPI_CHAR, 0, 99, MPI_COMM_WORLD);
+				MPI_Send(result, strlen(result) + 1, MPI_CHAR, 0, 99, MPI_COMM_WORLD);
 			}
 			continue;
 		}
@@ -405,28 +402,28 @@ int main(int argc, char **argv)
 #ifdef DEBUG
 	printf("my_rank is %d\n", my_rank);
 #endif
-	
+
 	while ((c = getopt(argc, argv, "w:p:h")) != EOF) {
-      		switch(c) {
-      			case 'w':
-        			strcpy(wk_pass_filename,optarg);
-				break;
-			case 'p':
-				strcpy(pass_filename, optarg);
-				break;
-			case 'h':
-				printf("Usage: ./checkwkpass -w weak_pass_file -p pass_filename\n");
-				MPI_Finalize();
-				exit(0);
+		switch (c) {
+		case 'w':
+			strcpy(wk_pass_filename, optarg);
+			break;
+		case 'p':
+			strcpy(pass_filename, optarg);
+			break;
+		case 'h':
+			printf("Usage: ./checkwkpass -w weak_pass_file -p pass_filename\n");
+			MPI_Finalize();
+			exit(0);
 		}
 	}
-	MPI_Barrier(MPI_COMM_WORLD);	
+	MPI_Barrier(MPI_COMM_WORLD);
 	T2 = MPI_Wtime();
 
-	if(my_rank!=0) 
+	if (my_rank != 0)
 		do_job();
 
-	MPI_Barrier(MPI_COMM_WORLD);	
+	MPI_Barrier(MPI_COMM_WORLD);
 	T3 = MPI_Wtime();
 
 	printf("I am master\n");
@@ -437,20 +434,20 @@ int main(int argc, char **argv)
 	}
 
 	int running = 0;
-	while(1) {
+	while (1) {
 		// 接收子进程消息
 		MPI_Status status;
 		MPI_Recv(buf, MAXLEN, MPI_CHAR, MPI_ANY_SOURCE, 99, MPI_COMM_WORLD, &status);
 #ifdef DEBUG
 		printf("my_rank %d from %d get %s\n", my_rank, status.MPI_SOURCE, buf);
 #endif
-		if(memcmp(buf, "RESULT", 6) == 0) {
-			if(buf[6] != 0) 
+		if (memcmp(buf, "RESULT", 6) == 0) {
+			if (buf[6] != 0)
 				printf("%s\n", buf + 6);
-			running --;
+			running--;
 		}
 
-		result[0] = 0; // result 这时是准备给节点的消息
+		result[0] = 0;	// result 这时是准备给节点的消息
 		while (fgets(buf, MAXLEN, fp)) {
 			if (strlen(buf) < 1)
 				continue;
@@ -460,7 +457,7 @@ int main(int argc, char **argv)
 			if (t == NULL) {
 				t = strchr(buf, ' ');
 				if (t == NULL) {
-					if(buf[0]=='{') {
+					if (buf[0] == '{') {
 						snprintf(result, MAXLEN, "TASKnousername	%s", buf);
 						break;
 					} else {
@@ -474,18 +471,18 @@ int main(int argc, char **argv)
 			snprintf(result, MAXLEN, "TASK%s	%s", buf, t);
 			break;
 		}
-		if(result[0] == 0)  {  // 已经结束了
-			strcpy(buf, "END");	
-			MPI_Send(buf, strlen(buf) + 1, MPI_CHAR, status.MPI_SOURCE, 99, MPI_COMM_WORLD); 
-			if(running == 0) { // 所有都结束
+		if (result[0] == 0) {	// 已经结束了
+			strcpy(buf, "END");
+			MPI_Send(buf, strlen(buf) + 1, MPI_CHAR, status.MPI_SOURCE, 99, MPI_COMM_WORLD);
+			if (running == 0) {	// 所有都结束
 				MPI_Finalize();
 				T4 = MPI_Wtime();
-				printf("all done, total_cpu=%d T2-T1=%.2f T3-T2=%.2f T4-T3=%.2f\n", total_cpu, T2-T1, T3-T2, T4-T3);
+				printf("all done, total_cpu=%d T2-T1=%.2f T3-T2=%.2f T4-T3=%.2f\n", total_cpu, T2 - T1, T3 - T2, T4 - T3);
 				exit(0);
 			}
 			continue;
 		}
-		running ++;
-		MPI_Send(result, strlen(result) + 1, MPI_CHAR, status.MPI_SOURCE, 99, MPI_COMM_WORLD); 
+		running++;
+		MPI_Send(result, strlen(result) + 1, MPI_CHAR, status.MPI_SOURCE, 99, MPI_COMM_WORLD);
 	}
 }
