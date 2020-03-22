@@ -20,6 +20,8 @@ email.pass.txt是邮件用户 和 加密后的密码，中间空格 或 TAB 隔�
 
 */
 
+#include "mpi.h"
+
 #include <openssl/md5.h>
 #include <string.h>
 #include <stdio.h>
@@ -30,9 +32,11 @@ email.pass.txt是邮件用户 和 加密后的密码，中间空格 或 TAB 隔�
 
 //#define DEBUG 1
 
-#define MY_LEN 1024
+#define MAXLEN 1024
 
 #include "uthash.h"
+
+int my_rank, total_cpu;
 
 struct pass_struct {
 	char md5[33];
@@ -102,7 +106,7 @@ void add_pass(char *pass)
 }
 
 // enc1, crypt
-void checkenc1(const char *email, const char *salt)
+void checkenc1(const char *email, const char *salt, char *result)
 {
 	char *p;
 	struct pass_struct *s;
@@ -114,21 +118,24 @@ void checkenc1(const char *email, const char *salt)
 		printf("enc1, key: %s, salt: %s, crypt: %s\n", s->pass, salt, p);
 #endif
 		if (strcmp(salt + 6, p) == 0) {
-			printf("WK %s %s %s\n", email, s->pass, salt);
+			snprintf(result, MAXLEN, "RESULTWK %s %s %s", email, s->pass, salt);
 			return;
 		}
 	}
+	snprintf(result, MAXLEN, "RESULT");
 }
 
 // enc2, md5
-void checkenc2(const char *email, const char *salt)
+void checkenc2(const char *email, const char *salt, char *result)
 {
 	struct pass_struct *s;
 
 	HASH_FIND_STR(all_pass, salt + 6, s);
 	if (s) {
-		printf("WK %s %s %s\n", email, s->pass, salt);
+		snprintf(result, MAXLEN, "RESULTWK %s %s %s", email, s->pass, salt);
+		return;
 	}
+	snprintf(result, MAXLEN, "RESULT");
 }
 
 unsigned char tohex(char c)
@@ -267,48 +274,49 @@ char *dumphex(unsigned char *s, int l)
 }
 
 // enc8, decode64, last2 is salt, pass + last2 md5
-void checkenc8(const char *email, const char *salt)
+void checkenc8(const char *email, const char *salt, char *result)
 {
 	struct pass_struct *s;
-	static unsigned char salt_buf[MY_LEN];
-	unsigned char result[21];
+	static unsigned char salt_buf[MAXLEN];
+	unsigned char res[21];
 	MD5_CTX ctx;
 
-	strncpy((char *)salt_buf, salt + 6, MY_LEN - 1);
+	strncpy((char *)salt_buf, salt + 6, MAXLEN - 1);
 	int l = decodebase64(salt_buf);
 #ifdef DEBUG
 	printf("docoded ret: %d\n", l);
 #endif
-	if (l != 20)
-		exit(0);
+	if (l != 20) {
+			snprintf(result, MAXLEN, "RESULTERROR");
+			return;
+	}
 
 	// 对每个可能的密码，尝试
 	for (s = all_pass; s != NULL; s = s->hh.next) {
 		MD5_Init(&ctx);
 		MD5_Update(&ctx, s->pass, strlen(s->pass));
 		MD5_Update(&ctx, salt_buf + 16, 4);
-		MD5_Final(result, &ctx);
-		if (memcmp(salt_buf, result, 16) == 0) {
-			printf("WK %s %s %s\n", email, s->pass, salt);
+		MD5_Final(res, &ctx);
+		if (memcmp(salt_buf, res, 16) == 0) {
+			snprintf(result, MAXLEN, "RESULTWK %s %s %s", email, s->pass, salt);
 			return;
 		}
 	}
+	snprintf(result, MAXLEN, "RESULT");
 }
 
-#define MAXLEN 1024
 
-void checkuser(char *email, char *salt)
+void checkuser(char *email, char *salt, char *result)
 {
 	if (strncmp(salt, "{enc1}", 6) == 0)
-		return checkenc1(email, salt);
+		return checkenc1(email, salt, result);
 	if (strncmp(salt, "{enc2}", 6) == 0)
-		return checkenc2(email, salt);
+		return checkenc2(email, salt, result);
 	if (strncmp(salt, "{enc5}", 6) == 0)
-		return checkenc1(email, salt);
+		return checkenc1(email, salt, result);
 	if (strncmp(salt, "{enc8}", 6) == 0)
-		return checkenc8(email, salt);
-	printf("unknow slat: %s\n", salt);
-	exit(0);
+		return checkenc8(email, salt, result);
+	snprintf(result, MAXLEN, "RESULTUNKOWSALT");
 }
 
 int total_wk_pass = 0;
@@ -317,7 +325,9 @@ void load_wk_pass(char *wk_pass)
 {
 	FILE *fp;
 	char buf[MAXLEN];
-	printf("loading wk_pass file %s\n", wk_pass);
+#ifdef DEBUG
+	printf("rank %d loading wk_pass file %s\n", my_rank, wk_pass);
+#endif
 	fp = fopen(wk_pass, "r");
 	if (fp == NULL) {
 		printf("%s open error\n", wk_pass);
@@ -332,48 +342,150 @@ void load_wk_pass(char *wk_pass)
 		total_wk_pass++;
 	}
 	fclose(fp);
-	printf("loading wk_pass file %s OK, total %d lines\n", wk_pass, total_wk_pass);
+#ifdef DEBUG
+	printf("rank %d loading wk_pass file %s OK, total %d lines\n", my_rank, wk_pass, total_wk_pass);
+#endif
+}
+
+
+char wk_pass_filename[MAXLEN];
+char pass_filename[MAXLEN];
+
+void do_job()
+{
+	char buf[MAXLEN];
+	char result[MAXLEN];
+	MPI_Status status;
+#ifdef DEBUG
+	printf("I am slave %d, do the job\n", my_rank);
+#endif
+	load_wk_pass(wk_pass_filename);
+	MPI_Barrier(MPI_COMM_WORLD);	
+	strcpy(buf, "READY"); // 告诉主进程READY，要求分配任务
+	MPI_Send(buf, strlen(buf) + 1, MPI_CHAR, 0, 99, MPI_COMM_WORLD); 
+	while(1) {
+		MPI_Recv(buf, MAXLEN, MPI_CHAR, 0, 99, MPI_COMM_WORLD, &status);
+#ifdef DEBUG
+		printf("rank %d get %s\n", my_rank, buf);
+#endif
+		if(memcmp(buf, "TASK", 4) == 0) {
+			char *t = strchr(buf+4, '\t');
+			if(t) {
+				*t = 0;
+				t++;
+				checkuser(buf + 4, t, result);
+#ifdef DEBUG
+				printf("rank %d result: %s\n", my_rank, result);
+#endif
+				 MPI_Send(result, strlen(result) + 1, MPI_CHAR, 0, 99, MPI_COMM_WORLD);
+			}
+			continue;
+		}
+		MPI_Finalize();
+		exit(0);
+	}
 }
 
 int main(int argc, char **argv)
 {
+	char buf[MAXLEN], result[MAXLEN];
 	FILE *fp;
-	char buf[MAXLEN];
-	if (argc != 3) {
-		printf("usage ./checkwkpass wk_pass.txt email.pass.txt\n");
-		exit(0);
-	}
+	int c;
+	double T1, T2, T3, T4;
+// T1 主进程开始时间
+// T2 所有进程都开始时间
+// T3 所有进程都读入文件，等待开始计算时间
+// T4 完成时间
 	setvbuf(stdout, NULL, _IONBF, 0);
-	load_wk_pass(argv[1]);
-	fp = fopen(argv[2], "r");
+
+	MPI_Init(&argc, &argv);
+	T1 = MPI_Wtime();
+	MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
+	MPI_Comm_size(MPI_COMM_WORLD, &total_cpu);
+#ifdef DEBUG
+	printf("my_rank is %d\n", my_rank);
+#endif
+	
+	while ((c = getopt(argc, argv, "w:p:h")) != EOF) {
+      		switch(c) {
+      			case 'w':
+        			strcpy(wk_pass_filename,optarg);
+				break;
+			case 'p':
+				strcpy(pass_filename, optarg);
+				break;
+			case 'h':
+				printf("Usage: ./checkwkpass -w weak_pass_file -p pass_filename\n");
+				MPI_Finalize();
+				exit(0);
+		}
+	}
+	MPI_Barrier(MPI_COMM_WORLD);	
+	T2 = MPI_Wtime();
+
+	if(my_rank!=0) 
+		do_job();
+
+	MPI_Barrier(MPI_COMM_WORLD);	
+	T3 = MPI_Wtime();
+
+	printf("I am master\n");
+	fp = fopen(pass_filename, "r");
 	if (fp == NULL) {
-		printf("%s open error\n", argv[2]);
+		printf("%s open error\n", pass_filename);
 		exit(0);
 	}
-	while (fgets(buf, MAXLEN, fp)) {
-		if (strlen(buf) < 1)
-			continue;
-		if (buf[strlen(buf) - 1] == '\n')
-			buf[strlen(buf) - 1] = 0;
-		char *t = strchr(buf, '\t');
-		if (t == NULL) {
-			t = strchr(buf, ' ');
+
+	int running = 0;
+	while(1) {
+		// 接收子进程消息
+		MPI_Status status;
+		MPI_Recv(buf, MAXLEN, MPI_CHAR, MPI_ANY_SOURCE, 99, MPI_COMM_WORLD, &status);
+#ifdef DEBUG
+		printf("my_rank %d from %d get %s\n", my_rank, status.MPI_SOURCE, buf);
+#endif
+		if(memcmp(buf, "RESULT", 6) == 0) {
+			if(buf[6] != 0) 
+				printf("%s\n", buf + 6);
+			running --;
+		}
+
+		result[0] = 0; // result 这时是准备给节点的消息
+		while (fgets(buf, MAXLEN, fp)) {
+			if (strlen(buf) < 1)
+				continue;
+			if (buf[strlen(buf) - 1] == '\n')
+				buf[strlen(buf) - 1] = 0;
+			char *t = strchr(buf, '\t');
 			if (t == NULL) {
-				if(buf[0]=='{') {
-					printf("checking %s\n", buf);
-					checkuser("nousername", buf);
-					continue;
-				} else {
-					printf("SKIP %s\n", buf);
-					continue;
+				t = strchr(buf, ' ');
+				if (t == NULL) {
+					if(buf[0]=='{') {
+						snprintf(result, MAXLEN, "TASKnousername	%s", buf);
+						break;
+					} else {
+						printf("SKIP %s\n", buf);
+						continue;
+					}
 				}
 			}
+			*t = 0;
+			t++;
+			snprintf(result, MAXLEN, "TASK%s	%s", buf, t);
+			break;
 		}
-		*t = 0;
-		t++;
-		printf("checking %s %s\n", buf, t);
-		checkuser(buf, t);
+		if(result[0] == 0)  {  // 已经结束了
+			strcpy(buf, "END");	
+			MPI_Send(buf, strlen(buf) + 1, MPI_CHAR, status.MPI_SOURCE, 99, MPI_COMM_WORLD); 
+			if(running == 0) { // 所有都结束
+				MPI_Finalize();
+				T4 = MPI_Wtime();
+				printf("all done, total_cpu=%d T2-T1=%.2f T3-T2=%.2f T4-T3=%.2f\n", total_cpu, T2-T1, T3-T2, T4-T3);
+				exit(0);
+			}
+			continue;
+		}
+		running ++;
+		MPI_Send(result, strlen(result) + 1, MPI_CHAR, status.MPI_SOURCE, 99, MPI_COMM_WORLD); 
 	}
-	fclose(fp);
-	return 0;
 }
