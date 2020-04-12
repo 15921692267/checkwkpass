@@ -11,7 +11,8 @@ email.pass.txt是邮件用户 和 加密后的密码，中间空格 或 TAB 隔�
 如果密码是 {enc1}xxx，crypt('密码', 'xxx')
 如果密码是 {enc2}xxxx，md5sum('密码')
 如果密码是 {enc5}xxx，crypt('密码', 'xxx')，使用带salt MD5，非常慢
-如果密码是 {enc8}xxxx，把xxxx decode64转成2进制，然后直接dumphex
+如果密码是 {enc7}xxxx，把xxxx decode64转成2进制，密码+最后8位 SHA1 然后校验
+如果密码是 {enc8}xxxx，把xxxx decode64转成2进制，密码+最后4位 MD5 然后校验
 
 为了提高速度，预先将弱密码读入，并生成md5，
 
@@ -23,6 +24,7 @@ email.pass.txt是邮件用户 和 加密后的密码，中间空格 或 TAB 隔�
 #include "mpi.h"
 
 #include <openssl/md5.h>
+#include <openssl/sha.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -273,6 +275,37 @@ char *dumphex(unsigned char *s, int l)
 	return outs;
 }
 
+// enc7, decode64, last8 is salt, pass + last8 sha1 
+void checkenc7(const char *email, const char *salt, char *result)
+{
+	struct pass_struct *s;
+	static unsigned char salt_buf[MAXLEN];
+	unsigned char res[21];
+	SHA_CTX ctx;
+
+	strncpy((char *)salt_buf, salt + 6, MAXLEN - 1);
+	int l = decodebase64(salt_buf);
+#ifdef DEBUG
+	printf("decoded ret: %d\n", l);
+#endif
+	if (l != 28) {
+		snprintf(result, MAXLEN, "RESULTERROR");
+		return;
+	}
+	// 对每个可能的密码，尝试
+	for (s = all_pass; s != NULL; s = s->hh.next) {
+		SHA1_Init(&ctx);
+		SHA1_Update(&ctx, s->pass, strlen(s->pass));
+		SHA1_Update(&ctx, salt_buf + 20, 8);
+		SHA1_Final(res, &ctx);
+		if (memcmp(salt_buf, res, 20) == 0) {
+			snprintf(result, MAXLEN, "RESULTWK %s %s %s", email, s->pass, salt);
+			return;
+		}
+	}
+	snprintf(result, MAXLEN, "RESULT");
+}
+
 // enc8, decode64, last2 is salt, pass + last2 md5
 void checkenc8(const char *email, const char *salt, char *result)
 {
@@ -284,7 +317,7 @@ void checkenc8(const char *email, const char *salt, char *result)
 	strncpy((char *)salt_buf, salt + 6, MAXLEN - 1);
 	int l = decodebase64(salt_buf);
 #ifdef DEBUG
-	printf("docoded ret: %d\n", l);
+	printf("decoded ret: %d\n", l);
 #endif
 	if (l != 20) {
 		snprintf(result, MAXLEN, "RESULTERROR");
@@ -308,11 +341,13 @@ void checkuser(char *email, char *salt, char *result)
 {
 	if (strncmp(salt, "{enc1}", 6) == 0)
 		return checkenc1(email, salt, result);
-	if (strncmp(salt, "{enc2}", 6) == 0)
+	else if (strncmp(salt, "{enc2}", 6) == 0)
 		return checkenc2(email, salt, result);
-	if (strncmp(salt, "{enc5}", 6) == 0)
+	else if (strncmp(salt, "{enc5}", 6) == 0)
 		return checkenc1(email, salt, result);
-	if (strncmp(salt, "{enc8}", 6) == 0)
+	else if (strncmp(salt, "{enc7}", 6) == 0)
+		return checkenc7(email, salt, result);
+	else if (strncmp(salt, "{enc8}", 6) == 0)
 		return checkenc8(email, salt, result);
 	snprintf(result, MAXLEN, "RESULTUNKOWSALT");
 }
