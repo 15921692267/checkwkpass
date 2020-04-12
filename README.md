@@ -14,10 +14,17 @@
 
 
 2. 使用常见的弱密码库进行碰撞
+
+测试运行
+```
+mpirun -n X ./checkwkpass -w wk_pass.txt -p testcase.txt
+```
+
+正常运行
 ```
 mpirun -n X ./checkwkpass -w wk_pass.txt -p email.pass.txt
-其中X是CPU数，X >= 2 (原因是主进程负责分发计算任务，自己不计算)
 ```
+X是进程数，X >= 2 (原因是主进程负责分发计算任务，自己不计算)
 
 其中 wk_pass.txt 是弱密码文件，一行一个密码
 

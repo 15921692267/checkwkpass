@@ -1,5 +1,5 @@
 all:
-	mpicc -Wall -g -o checkwkpass checkwkpass.c -lcrypt -lssl -lcrypto
+	mpicc -Wall -Wno-format-truncation -g -o checkwkpass checkwkpass.c -lcrypt -lssl -lcrypto
 
 indent: checkwkpass.c
 	indent checkwkpass.c  -nbad -bap -nbc -bbo -hnl -br -brs -c33 -cd33 -ncdb -ce -ci4 \

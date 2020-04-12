@@ -8,9 +8,9 @@ wk_pass.txt是弱密码文件，每行一个
 email.pass.txt是邮件用户 和 加密后的密码，中间空格 或 TAB 隔开
 
 支持的加密密码格式有：
-如果密码是 {enc1}xxx，crypt('密码', 'xxx')
-如果密码是 {enc2}xxxx，md5sum('密码')
-如果密码是 {enc5}xxx，crypt('密码', 'xxx')，使用带salt MD5，非常慢
+如果密码是 {enc1}xxxx，crypt('密码', 'xxxx')
+如果密码是 {enc2}xxxx，md5sum('密码')，可能会再用base64编码
+如果密码是 {enc5}xxxx，crypt('密码', 'xxxx')，使用带salt MD5，非常慢
 如果密码是 {enc7}xxxx，把xxxx decode64转成2进制，密码+最后8位 SHA1 然后校验
 如果密码是 {enc8}xxxx，把xxxx decode64转成2进制，密码+最后4位 MD5 然后校验
 
@@ -105,39 +105,6 @@ void add_pass(char *pass)
 #ifdef DEBUG
 	printf("added\n");
 #endif
-}
-
-// enc1, crypt
-void checkenc1(const char *email, const char *salt, char *result)
-{
-	char *p;
-	struct pass_struct *s;
-
-	for (s = all_pass; s != NULL; s = s->hh.next) {
-
-		p = crypt(s->pass, salt + 6);
-#ifdef DEBUG
-		printf("enc1, key: %s, salt: %s, crypt: %s\n", s->pass, salt, p);
-#endif
-		if (strcmp(salt + 6, p) == 0) {
-			snprintf(result, MAXLEN, "RESULTWK %s %s %s", email, s->pass, salt);
-			return;
-		}
-	}
-	snprintf(result, MAXLEN, "RESULT");
-}
-
-// enc2, md5
-void checkenc2(const char *email, const char *salt, char *result)
-{
-	struct pass_struct *s;
-
-	HASH_FIND_STR(all_pass, salt + 6, s);
-	if (s) {
-		snprintf(result, MAXLEN, "RESULTWK %s %s %s", email, s->pass, salt);
-		return;
-	}
-	snprintf(result, MAXLEN, "RESULT");
 }
 
 unsigned char tohex(char c)
@@ -270,9 +237,55 @@ char *dumphex(unsigned char *s, int l)
 		l = 200;
 	int i;
 	for (i = 0; i < l; i++)
-		sprintf(outs + i * 2, "%02X", s[i]);
+		sprintf(outs + i * 2, "%02x", s[i]);
 	outs[l * 2] = 0;
 	return outs;
+}
+
+// enc1, crypt
+void checkenc1(const char *email, const char *salt, char *result)
+{
+	char *p;
+	struct pass_struct *s;
+
+	for (s = all_pass; s != NULL; s = s->hh.next) {
+
+		p = crypt(s->pass, salt + 6);
+#ifdef DEBUG
+		printf("enc1, key: %s, salt: %s, crypt: %s\n", s->pass, salt, p);
+#endif
+		if (strcmp(salt + 6, p) == 0) {
+			snprintf(result, MAXLEN, "RESULTWK %s %s %s", email, s->pass, salt);
+			return;
+		}
+	}
+	snprintf(result, MAXLEN, "RESULT");
+}
+
+// enc2, md5
+void checkenc2(const char *email, char *salt, char *result)
+{
+	struct pass_struct *s;
+	if(strstr(salt, "==")) { // md5, then base64
+		char save_salt[MAXLEN];
+		int l;
+		strcpy(save_salt, salt);
+		l = decodebase64((unsigned char*)(salt + 6));
+		salt[l + 6] = 0;
+		HASH_FIND_STR(all_pass, dumphex((unsigned char*)(salt + 6), l), s);
+		if (s) {
+			snprintf(result, MAXLEN, "RESULTWK %s %s %s", email, s->pass, save_salt);
+			return;
+		}
+		snprintf(result, MAXLEN, "RESULT");
+		return;
+	}
+	HASH_FIND_STR(all_pass, salt + 6, s);
+	if (s) {
+		snprintf(result, MAXLEN, "RESULTWK %s %s %s", email, s->pass, salt);
+		return;
+	}
+	snprintf(result, MAXLEN, "RESULT");
 }
 
 // enc7, decode64, last8 is salt, pass + last8 sha1 
